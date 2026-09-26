@@ -18,8 +18,9 @@ Each run:
 5. Once a month, downloads a different 1/12 of the stored data and checks it,
    so the whole backup gets verified over a year.
 
-If a run fails or is skipped, you get a macOS notification. Everything is logged
-to `~/Library/Logs/photo-library-backup.log`.
+If a run fails or is skipped, you get a macOS notification, and if a
+[healthchecks.io](#monitoring) ping URL is set up, the check goes down. Everything is
+logged to `~/Library/Logs/photo-library-backup.log`.
 
 ## Why a compiled binary
 
@@ -41,6 +42,7 @@ doesn't change, the permission survives rebuilds.
 | --- | --- |
 | `src/config.ts` | Library path, retention, names, restic environment. |
 | `src/backup.ts` | The weekly job. |
+| `src/healthcheck.ts` | healthchecks.io pings (start, success, fail). |
 | `src/setup.ts` | One-time interactive setup (safe to re-run). |
 | `src/main.ts` | Command-line entry point: `backup`, `setup`, `restic <args>`. |
 | `build.ts` | Compiles and signs `dist/photo-library-backup`. |
@@ -73,6 +75,7 @@ This:
 - Generates the repository password, stores it in your login Keychain, and has you
   save a copy in your password manager. **Without the password the backup can't be
   decrypted.**
+- Optionally stores a healthchecks.io ping URL (see [Monitoring](#monitoring)).
 - Initialises the restic repository (the `photo-library-backup` folder in My Drive).
 - Installs the launchd job.
 
@@ -110,6 +113,34 @@ launchctl kickstart gui/$UID/local.photo-library-backup   # back up now
 Running `dist/photo-library-backup backup` directly in Terminal also works, and shows
 restic's live progress bar. In that case it runs with Terminal's permissions and logs
 to the terminal instead of the log file.
+
+## Monitoring
+
+macOS notifications only help if the Mac is on and you're looking at it. A
+[healthchecks.io](https://healthchecks.io) check also catches the silent failures,
+such as the Mac being off or asleep for a week, or the job no longer running.
+
+Each backup run pings the check's URL:
+
+- `/start` when it begins. Healthchecks then records how long the run takes, and
+  flags a run that never finishes.
+- the plain URL on success.
+- `/fail` if the run fails, with the error in the ping body. A run where some files
+  couldn't be read also counts as a failure.
+
+A ping that can't get through is retried for about 20 seconds, then logged as a
+warning. It never fails the backup.
+
+Recommended check settings: **Period 1 week, Grace 1 day**. The grace day allows for
+the Mac being asleep at 03:00 on Sunday and running the backup when it wakes.
+
+The URL lives in Keychain rather than in the repo, because anyone with it can send
+pings. `setup` asks for it. To change or remove it:
+
+```sh
+security add-generic-password -U -s photo-library-backup -a healthchecks -w '<ping URL>'
+security delete-generic-password -s photo-library-backup -a healthchecks
+```
 
 ## Restoring
 

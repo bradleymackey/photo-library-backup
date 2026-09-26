@@ -6,9 +6,11 @@ import { BackupError, log, notify, restic } from "./shared.ts";
 
 /**
  * Backs up the library, applies the retention policy, and once a month reads
- * back part of the stored data. Throws BackupError for anything worth a notification.
+ * back part of the stored data. Throws BackupError for anything worth a notification,
+ * and returns warnings for a run that finished but needs attention.
  */
-export async function backup(): Promise<void> {
+export async function backup(): Promise<string[]> {
+  const warnings: string[] = [];
   log(`Starting backup of ${LIBRARY}`);
   checkLibraryReadable();
   await checkRepository();
@@ -29,8 +31,10 @@ export async function backup(): Promise<void> {
     }
   }
   if (status === 3) {
-    log("WARNING: some files couldn't be read; this snapshot is incomplete");
-    await notify(`Backup finished, but some files couldn't be read. See ${LOG_FILE}`);
+    const warning = "Backup finished, but some files couldn't be read, so this snapshot is incomplete.";
+    log(`WARNING: ${warning}`);
+    await notify(`${warning} See ${LOG_FILE}`);
+    warnings.push(warning);
   } else if (status !== 0) {
     throw new BackupError(`restic backup failed (exit ${status}). See ${LOG_FILE}`);
   }
@@ -40,6 +44,7 @@ export async function backup(): Promise<void> {
 
   await monthlyCheck();
   log("Done");
+  return warnings;
 }
 
 function checkLibraryReadable(): void {

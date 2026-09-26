@@ -1,5 +1,6 @@
 import { backup } from "./backup.ts";
 import { configureEnvironment } from "./config.ts";
+import { ping } from "./healthcheck.ts";
 import { setup } from "./setup.ts";
 import { errorMessage, log, notify, restic } from "./shared.ts";
 
@@ -15,11 +16,15 @@ const [command, ...args] = process.argv.slice(2);
 
 switch (command) {
   case "backup":
+    await ping("start");
     try {
-      await backup();
+      const warnings = await backup();
+      // An incomplete snapshot still counts as down, so it gets looked at.
+      await ping(warnings.length > 0 ? "fail" : "success", warnings.join("\n"));
     } catch (error) {
-      log(`ERROR: ${errorMessage(error)}`);
-      await notify(errorMessage(error));
+      const message = errorMessage(error);
+      log(`ERROR: ${message}`);
+      await Promise.all([notify(message), ping("fail", message)]);
       process.exit(1);
     }
     break;

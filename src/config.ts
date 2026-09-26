@@ -16,6 +16,8 @@ export const LABEL = "local.photo-library-backup";
 export const RCLONE_REMOTE = "gdrive-photos";
 export const KEYCHAIN_SERVICE = "photo-library-backup";
 export const KEYCHAIN_ACCOUNT = "restic";
+// Keychain account (same service) holding the optional healthchecks.io ping URL.
+export const HEALTHCHECK_ACCOUNT = "healthchecks";
 export const STATE_DIR = join(homedir(), "Library/Application Support/photo-library-backup");
 export const LOG_FILE = join(homedir(), "Library/Logs/photo-library-backup.log");
 export const LAUNCH_AGENT = join(homedir(), "Library/LaunchAgents", `${LABEL}.plist`);
