@@ -7,29 +7,53 @@ Weekly, encrypted, versioned backup of the Photos library
   new or changed chunks are sent, so after the first run a week's backup is small.
 - **rclone** is restic's transport to Google Drive, limited to the `drive.file`
   scope, so it can only see the files it created.
-- **launchd** runs `backup.sh` every Sunday at 03:00 (or on the next wake).
+- **launchd** runs the backup every Sunday at 03:00 (or on the next wake).
 
 Each run:
 
-1. Quits Photos, if it's open.
-2. Backs up the whole library bundle, then reopens Photos.
-3. Prunes old snapshots, keeping 8 weekly and 12 monthly ones.
-4. Once a month, downloads a different 1/12 of the stored data and checks it,
+1. Checks the library is readable and the backup repository reachable.
+2. Quits Photos, if it's open.
+3. Backs up the whole library bundle, then reopens Photos.
+4. Prunes old snapshots, keeping 8 weekly and 12 monthly ones.
+5. Once a month, downloads a different 1/12 of the stored data and checks it,
    so the whole backup gets verified over a year.
 
 If a run fails or is skipped, you get a macOS notification. Everything is logged
 to `~/Library/Logs/photo-library-backup.log`.
 
-## Files
+## Why a compiled binary
 
-| File | Purpose |
+When launchd starts a job, macOS applies privacy permissions to the program launchd
+runs, and every process it starts inherits them. A shell script would run as
+`/bin/bash`, and macOS never asks before denying its own built-in binaries such as
+bash. The only fix would be Full Disk Access for bash, which then covers any script
+launchd or cron starts.
+
+Instead, the TypeScript source in `src/` is compiled with `bun build --compile` into
+`dist/photo-library-backup`, and signed with your Apple Development certificate under
+a fixed identifier (`local.photo-library-backup`). macOS asks about that one binary,
+it only needs **Removable Volumes** access, and because the signature's identity
+doesn't change, the permission survives rebuilds.
+
+## Layout
+
+| Path | Purpose |
 | --- | --- |
-| `config.sh` | Paths, retention, names. Everything else sources it. |
-| `backup.sh` | The weekly job. |
-| `setup.sh` | One-time interactive setup (safe to re-run). |
-| `restic.sh` | Runs any restic command against the repo, e.g. `./restic.sh snapshots`. |
+| `src/config.ts` | Library path, retention, names, restic environment. |
+| `src/backup.ts` | The weekly job. |
+| `src/setup.ts` | One-time interactive setup (safe to re-run). |
+| `src/main.ts` | Command-line entry point: `backup`, `setup`, `restic <args>`. |
+| `build.ts` | Compiles and signs `dist/photo-library-backup`. |
+
+```sh
+bun install
+bun run typecheck
+bun run build        # after any change; the launchd job runs dist/photo-library-backup
+```
 
 ## Setup
+
+Install the tools first: `brew install restic rclone`.
 
 ### 1. Create a Google OAuth client
 
@@ -50,12 +74,13 @@ Save the client ID and secret in your password manager. You need the *same* clie
 to get back into the backup later, because `drive.file` access is tied to the
 client that created the files. Don't delete this Google Cloud project.
 
-### 2. Run setup
+### 2. Build and run setup
 
 In Terminal:
 
 ```sh
-./setup.sh
+bun install && bun run build
+dist/photo-library-backup setup
 ```
 
 This:
@@ -67,44 +92,46 @@ This:
 - Initialises the restic repository (the `photo-library-backup` folder in My Drive).
 - Installs the launchd job.
 
-### 3. Grant Full Disk Access to bash
+### 3. Run the first backup, and allow access
 
-macOS won't let a background job read files on the external drive. launchd starts
-the job as `/bin/bash`, and the only way to give bash access is Full Disk Access:
-
-**System Settings → Privacy & Security → Full Disk Access → +**, press
-<kbd>⌘⇧G</kbd>, enter `/bin/bash`, and turn it on.
-
-This applies to bash when it's started directly by launchd or cron. Scripts you
-run in Terminal already get Terminal's own permissions.
-
-The first time a run finds Photos open, macOS will ask whether bash may control
-Photos. Allow it. If it's refused, the backup still runs with Photos open.
-
-### 4. Run the first backup
+Do this while you're at the Mac:
 
 ```sh
 launchctl kickstart gui/$UID/local.photo-library-backup
 tail -f ~/Library/Logs/photo-library-backup.log
 ```
 
+macOS will ask:
+
+- whether **photo-library-backup** may access files on a removable volume. Allow it.
+  The backup waits until you answer.
+- whether it may control **Photos**, the first time a run finds Photos open. Allow it.
+  If it's refused, the backup still runs, with Photos left open.
+
+If you denied one by mistake, you can turn it back on in **System Settings → Privacy &
+Security → Files & Folders** (or **Automation**) under photo-library-backup.
+
 The first run uploads the whole library (~210 GB), so it takes hours; progress is
 logged every minute. Leave Photos closed until it finishes, and keep BANK-1
-connected. The script keeps the Mac awake while it runs.
+connected. The backup keeps the Mac awake while it runs.
 
 ## Day to day
 
 ```sh
-./restic.sh snapshots                  # list backups
-./restic.sh stats latest               # size of the latest snapshot
+dist/photo-library-backup restic snapshots        # list backups
+dist/photo-library-backup restic stats latest     # size of the latest snapshot
 launchctl kickstart gui/$UID/local.photo-library-backup   # back up now
 ```
+
+Running `dist/photo-library-backup backup` directly in Terminal also works, and shows
+restic's live progress bar. In that case it runs with Terminal's permissions and logs
+to the terminal instead of the log file.
 
 ## Restoring
 
 ```sh
-./restic.sh snapshots
-./restic.sh restore latest --target ~/Desktop/photos-restore
+dist/photo-library-backup restic snapshots
+dist/photo-library-backup restic restore latest --target ~/Desktop/photos-restore
 ```
 
 The library is restored under its original path inside the target
@@ -117,16 +144,16 @@ To restore an older version, use a snapshot ID from `snapshots` instead of `late
 
 ### On a new Mac
 
-1. `brew install restic rclone` and clone or copy this repo.
-2. Put the repository password from your password manager into Keychain, so
-   `setup.sh` doesn't generate a new one:
+1. `brew install restic rclone`, copy this repo, then `bun install && bun run build`.
+2. Put the repository password from your password manager into Keychain, so setup
+   doesn't generate a new one:
 
    ```sh
    security add-generic-password -s photo-library-backup -a restic -w '<password>'
    ```
 
-3. Run `./setup.sh` and give it the **same** OAuth client ID and secret. It will
-   find the existing repository rather than creating a new one.
+3. Run `dist/photo-library-backup setup` and give it the **same** OAuth client ID
+   and secret. It will find the existing repository rather than creating a new one.
 
 ## Notes
 
@@ -138,6 +165,8 @@ To restore an older version, use a snapshot ID from `snapshots` instead of `late
   (`use_trash=false`), so it doesn't sit there using quota.
 - **Password:** to see the repository password again, run
   `security find-generic-password -s photo-library-backup -a restic -w`.
+- **Signing:** `bun run build` picks your Apple Development identity automatically.
+  To use a different one, set `CODESIGN_IDENTITY`.
 - **Uninstall:**
 
   ```sh
