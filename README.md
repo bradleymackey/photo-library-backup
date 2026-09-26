@@ -55,26 +55,7 @@ bun run build        # after any change; the launchd job runs dist/photo-library
 
 Install the tools first: `brew install restic rclone`.
 
-### 1. Create a Google OAuth client
-
-rclone's built-in client ID is shared by every rclone user and heavily
-rate-limited, so create your own at <https://console.cloud.google.com>:
-
-1. Create a project (e.g. `photo-library-backup`).
-2. **APIs & Services → Library**: enable the **Google Drive API**.
-3. **Google Auth Platform** (OAuth consent screen): set it up as an **External**
-   app, with any name and your email.
-4. **Audience**: click **Publish app** so the status is **In production**.
-   **Don't skip this.** While the app is in *Testing*, Google expires its login after 7
-   days and the backups start failing. The app only asks for `drive.file`, which
-   doesn't need Google's verification.
-5. **Clients → Create client → Desktop app**. Keep the client ID and secret.
-
-Save the client ID and secret in your password manager. You need the *same* client
-to get back into the backup later, because `drive.file` access is tied to the
-client that created the files. Don't delete this Google Cloud project.
-
-### 2. Build and run setup
+### 1. Build and run setup
 
 In Terminal:
 
@@ -85,14 +66,17 @@ dist/photo-library-backup setup
 
 This:
 
-- Creates the `gdrive-photos` rclone remote (a browser opens for Google sign-in).
+- Creates the `gdrive-photos` rclone remote. When it asks for a client ID, press
+  Enter to use rclone's built-in Google client (or see
+  [your own OAuth client](#using-your-own-google-oauth-client-optional)). A browser
+  then opens for Google sign-in.
 - Generates the repository password, stores it in your login Keychain, and has you
   save a copy in your password manager. **Without the password the backup can't be
   decrypted.**
 - Initialises the restic repository (the `photo-library-backup` folder in My Drive).
 - Installs the launchd job.
 
-### 3. Run the first backup, and allow access
+### 2. Run the first backup, and allow access
 
 Do this while you're at the Mac:
 
@@ -152,8 +136,10 @@ To restore an older version, use a snapshot ID from `snapshots` instead of `late
    security add-generic-password -s photo-library-backup -a restic -w '<password>'
    ```
 
-3. Run `dist/photo-library-backup setup` and give it the **same** OAuth client ID
-   and secret. It will find the existing repository rather than creating a new one.
+3. Run `dist/photo-library-backup setup` and sign in with the same Google client as
+   before: press Enter for rclone's built-in one, or give it your own client ID and
+   secret if you set one up. It will find the existing repository rather than
+   creating a new one.
 
 ## Notes
 
@@ -165,6 +151,11 @@ To restore an older version, use a snapshot ID from `snapshots` instead of `late
   (`use_trash=false`), so it doesn't sit there using quota.
 - **Password:** to see the repository password again, run
   `security find-generic-password -s photo-library-backup -a restic -w`.
+- **Drive access:** with the `drive.file` scope, rclone can only see files created
+  through the same Google client. The backup is tied to whichever client you used
+  at setup. If rclone's built-in client ever stopped working, set up your own
+  client (below) with `scope=drive` (full Drive access). That can see every file,
+  including the existing backup.
 - **Signing:** `bun run build` picks your Apple Development identity automatically.
   To use a different one, set `CODESIGN_IDENTITY`.
 - **Uninstall:**
@@ -173,3 +164,29 @@ To restore an older version, use a snapshot ID from `snapshots` instead of `late
   launchctl bootout gui/$UID/local.photo-library-backup
   rm ~/Library/LaunchAgents/local.photo-library-backup.plist
   ```
+
+## Using your own Google OAuth client (optional)
+
+rclone's built-in client is shared by every rclone user, so heavy use can hit
+Google's rate limits. This backup uploads a few large files a week, so it's
+unlikely to matter. If you do want your own client, decide before running setup:
+switching later means the new client can't see the existing backup (see Notes).
+
+Check the project picker at the top of each page shows your project.
+
+1. [Create a project](https://console.cloud.google.com/projectcreate) (e.g.
+   `photo-library-backup`).
+2. [Enable the Google Drive API](https://console.cloud.google.com/apis/library/drive.googleapis.com).
+3. [Google Auth Platform](https://console.cloud.google.com/auth/overview) → **Get
+   started**. Give it any app name and your email, choose **External** as the
+   audience, add your email as the contact, agree to the terms and **Create**.
+4. [Audience](https://console.cloud.google.com/auth/audience) → **Publish app**, so
+   the status reads **In production**. While it's in *Testing*, Google expires the
+   login after 7 days and backups start failing. `drive.file` doesn't need Google's
+   verification, so publishing is instant.
+5. [Clients](https://console.cloud.google.com/auth/clients) → **Create client** →
+   application type **Desktop app** → **Create**. Copy the client ID and secret
+   (or download the JSON) straight away; Google may not show the secret again.
+
+Paste them when setup asks for a client ID, and save both in your password manager.
+Restoring later needs the same client, so don't delete the project.

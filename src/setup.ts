@@ -21,14 +21,14 @@ export async function setup(): Promise<void> {
   if (remotes.includes(`${RCLONE_REMOTE}:`)) {
     console.log("Already configured.");
   } else {
-    console.log("Paste the Desktop OAuth client from Google Cloud (see README).");
-    const clientId = ask("Client ID:");
-    const clientSecret = ask("Client secret:", { hidden: true });
+    console.log("Press Enter to use rclone's built-in Google client, or paste your own client ID (see README).");
+    const clientId = ask("Client ID:", { optional: true });
+    const client = clientId ? [`client_id=${clientId}`, `client_secret=${ask("Client secret:", { hidden: true })}`] : [];
     console.log("A browser window will open. Sign in and allow access.");
     // drive.file: rclone can only see files it created, not the rest of your Drive.
     // use_trash=false: pruned data is deleted outright instead of filling the Drive bin.
     const rclone = Bun.spawn(
-      ["rclone", "config", "create", RCLONE_REMOTE, "drive", `client_id=${clientId}`, `client_secret=${clientSecret}`, "scope=drive.file", "use_trash=false"],
+      ["rclone", "config", "create", RCLONE_REMOTE, "drive", ...client, "scope=drive.file", "use_trash=false"],
       // stdout is the finished config (including the token); stderr has the sign-in instructions.
       { stdio: ["inherit", "ignore", "inherit"] },
     );
@@ -82,15 +82,15 @@ function step(title: string): void {
   console.log(`\n==> ${title}`);
 }
 
-function ask(question: string, { hidden = false } = {}): string {
+function ask(question: string, { hidden = false, optional = false } = {}): string {
   if (hidden) Bun.spawnSync(["stty", "-echo"], { stdin: "inherit" });
-  const answer = prompt(question);
+  const answer = prompt(question)?.trim() ?? "";
   if (hidden) {
     Bun.spawnSync(["stty", "echo"], { stdin: "inherit" });
     console.log();
   }
-  if (!answer?.trim()) throw new BackupError("No answer given.");
-  return answer.trim();
+  if (!answer && !optional) throw new BackupError("No answer given.");
+  return answer;
 }
 
 function launchAgentPlist(): string {
