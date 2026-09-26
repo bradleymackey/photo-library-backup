@@ -131,8 +131,17 @@ Each backup run pings the check's URL:
 A ping that can't get through is retried for about 20 seconds, then logged as a
 warning. It never fails the backup.
 
-Recommended check settings: **Period 1 week, Grace 1 day**. The grace day allows for
-the Mac being asleep at 03:00 on Sunday and running the backup when it wakes.
+Recommended check settings: a **Cron** check with schedule `0 3 * * 0`, time zone
+`Europe/London` and **grace 6 hours**. A cron check always expects a ping around
+Sunday 03:00, however late the last run was or whether you ran one by hand. This Mac
+never sleeps, so a normal run finishes within minutes, and the monthly check adds
+roughly 10.
+
+If the Mac is *shut down* at 03:00, launchd skips that week's run. It catches up
+after sleep, but not after a shutdown. The check going down is your cue to run
+`launchctl kickstart gui/$UID/local.photo-library-backup`. If the Mac ever starts
+sleeping at night, raise the grace to a day, or wake it for the backup with
+`sudo pmset repeat wakeorpoweron U 02:55:00`.
 
 The URL lives in Keychain rather than in the repo, because anyone with it can send
 pings. `setup` asks for it. To change or remove it:
