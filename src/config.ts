@@ -10,7 +10,9 @@ export const ENV_FILE = join(basename(process.execPath) === "bun" ? import.meta.
 // database isn't being edited mid-snapshot.
 export const QUIT_PHOTOS = true;
 
-// Retention: with weekly runs this keeps ~2 months of weeklies plus a year of monthlies.
+// Retention: the latest snapshot of each of the last 7 days that have one, of the last
+// 8 weeks and of the last 12 months. On a weekly schedule the dailies add nothing.
+export const KEEP_DAILY = 7;
 export const KEEP_WEEKLY = 8;
 export const KEEP_MONTHLY = 12;
 

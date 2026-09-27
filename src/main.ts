@@ -7,7 +7,7 @@ import { errorMessage, log, notify, restic } from "./shared.ts";
 const USAGE = `Usage: photo-library-backup <command>
 
 Commands:
-  backup          Back up the Photos library now (what the weekly launchd job runs)
+  backup          Back up the Photos library now (what the scheduled launchd job runs)
   setup           One-time setup: Google Drive remote, password, repository, schedule
   restic <args>   Run restic against the backup repository, e.g. "restic snapshots"`;
 

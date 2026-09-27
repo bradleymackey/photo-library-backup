@@ -1,7 +1,7 @@
 import { $ } from "bun";
 import { readdirSync } from "node:fs";
 import { join } from "node:path";
-import { KEEP_MONTHLY, KEEP_WEEKLY, LOG_FILE, QUIT_PHOTOS, STATE_DIR, libraryPath } from "./config.ts";
+import { KEEP_DAILY, KEEP_MONTHLY, KEEP_WEEKLY, LOG_FILE, QUIT_PHOTOS, STATE_DIR, libraryPath } from "./config.ts";
 import { BackupError, log, notify, restic } from "./shared.ts";
 
 /**
@@ -40,8 +40,12 @@ export async function backup(): Promise<string[]> {
     throw new BackupError(`restic backup failed (exit ${status}). See ${LOG_FILE}`);
   }
 
-  log(`Applying retention: keep ${KEEP_WEEKLY} weekly and ${KEEP_MONTHLY} monthly snapshots`);
-  await resticOrThrow(["forget", "--keep-weekly", String(KEEP_WEEKLY), "--keep-monthly", String(KEEP_MONTHLY), "--prune"]);
+  log(`Applying retention: keep ${KEEP_DAILY} daily, ${KEEP_WEEKLY} weekly and ${KEEP_MONTHLY} monthly snapshots`);
+  await resticOrThrow([
+    "forget",
+    ...["--keep-daily", String(KEEP_DAILY), "--keep-weekly", String(KEEP_WEEKLY), "--keep-monthly", String(KEEP_MONTHLY)],
+    "--prune",
+  ]);
 
   await monthlyCheck();
   log("Done");

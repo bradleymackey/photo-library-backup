@@ -14,7 +14,8 @@ Each run:
 1. Checks the library is readable and the backup repository reachable.
 2. Quits Photos, if it's open.
 3. Backs up the whole library bundle, then reopens Photos.
-4. Prunes old snapshots, keeping 8 weekly and 12 monthly ones.
+4. Prunes old snapshots, keeping the latest from each of the last 7 days, 8 weeks and
+   12 months.
 5. Once a month, downloads a different 1/12 of the stored data and checks it,
    so the whole backup gets verified over a year.
 
@@ -62,7 +63,7 @@ because the signature's identity doesn't change, the permission survives rebuild
 | `AGENTS.md` | Rules for coding agents (`CLAUDE.md` links to it); defers to this README. |
 | `.env.example` | Per-Mac settings (library path, schedule, healthchecks.io URL); copy to `.env`. |
 | `src/config.ts` | Retention, names, restic environment, loading `.env`. |
-| `src/backup.ts` | The weekly job. |
+| `src/backup.ts` | The scheduled backup job. |
 | `src/schedule.ts` | Turns the cron schedule into launchd's calendar intervals. |
 | `src/healthcheck.ts` | healthchecks.io pings (start, success, fail). |
 | `src/setup.ts` | One-time interactive setup (safe to re-run). |
@@ -220,8 +221,10 @@ To restore an older version, use a snapshot ID from `snapshots` instead of `late
   iCloud sync can still touch the library, though, so a snapshot isn't guaranteed
   to be perfectly consistent. The snapshot history and Photos' repair tool are the
   safety net.
-- **Schedule:** retention keeps weekly and monthly snapshots whatever the schedule,
-  so backing up more often than weekly gives fresher backups, not more history.
+- **Retention:** "the last 7 days" means the 7 most recent days that have a backup,
+  so on a nightly schedule you can go back to any of the past week's backups, and
+  on the default weekly one the dailies are just the latest weeklies. Backing up
+  more than once a day gives fresher backups, not more history.
 - **Pruning:** pruned data is deleted outright rather than sent to the Drive bin
   (`use_trash=false`), so it doesn't sit there using quota.
 - **Password:** to see the repository password again, run
