@@ -21,6 +21,25 @@ If a run fails or is skipped, you get a macOS notification, and if a
 [healthchecks.io](#monitoring) ping URL is set up, the check goes down. Everything is
 logged to `~/Library/Logs/photo-library-backup.log`.
 
+## Principles
+
+These come before anything else, including new features:
+
+- **The library's integrity.** The backup only ever reads the Photos library. Nothing
+  in this project writes to, moves or deletes anything inside it; the only thing it
+  does to Photos is quit and reopen the app. Restores go to a separate folder, never
+  over the library. Snapshots are removed only by the retention policy, and a run
+  that falls short (an incomplete snapshot, a failed check, a failed upload) is
+  always reported, never passed over quietly.
+- **Backwards compatibility.** An existing install keeps working after `git pull` and
+  `bun run build`, with no manual steps, and every existing snapshot stays
+  restorable. New settings default to today's behaviour, and nothing an install
+  depends on is renamed: the `.env` variables, the Keychain item, the `gdrive-photos`
+  remote, the repository's folder in Drive, the snapshot host name
+  (`photo-library`), the launchd label or the signing identifier.
+- **This README is the source of truth.** Any change to behaviour, settings, commands
+  or layout updates it in the same commit.
+
 ## Why a compiled binary
 
 When launchd starts a job, macOS applies privacy permissions to the program launchd
@@ -39,6 +58,7 @@ because the signature's identity doesn't change, the permission survives rebuild
 
 | Path | Purpose |
 | --- | --- |
+| `AGENTS.md` | Rules for coding agents (`CLAUDE.md` links to it); defers to this README. |
 | `.env.example` | Per-Mac settings (library path, healthchecks.io URL); copy to `.env`. |
 | `src/config.ts` | Retention, names, restic environment, loading `.env`. |
 | `src/backup.ts` | The weekly job. |
