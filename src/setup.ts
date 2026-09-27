@@ -1,7 +1,8 @@
 import { $ } from "bun";
+import { statSync } from "node:fs";
 import { basename } from "node:path";
 import { userInfo } from "node:os";
-import { HEALTHCHECK_ACCOUNT, KEYCHAIN_ACCOUNT, KEYCHAIN_SERVICE, LABEL, LAUNCH_AGENT, LOG_FILE, RCLONE_REMOTE } from "./config.ts";
+import { ENV_FILE, KEYCHAIN_ACCOUNT, KEYCHAIN_SERVICE, LABEL, LAUNCH_AGENT, LOG_FILE, RCLONE_REMOTE, libraryPath } from "./config.ts";
 import { BackupError, restic } from "./shared.ts";
 
 /** One-time interactive setup. Safe to re-run; finished steps are skipped. */
@@ -15,6 +16,18 @@ export async function setup(): Promise<void> {
     if (!Bun.which(tool)) throw new BackupError(`Missing ${tool}; run: brew install ${tool}`);
   }
   console.log("OK");
+
+  step(`Settings (${ENV_FILE})`);
+  const library = libraryPath();
+  try {
+    statSync(library);
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === "ENOENT") {
+      throw new BackupError(`No Photos library at ${library}. Check PHOTOS_LIBRARY, and that its drive is connected.`);
+    }
+  }
+  console.log(`Library: ${library}`);
+  console.log(`healthchecks.io: ${process.env.HEALTHCHECK_URL ? "pings on every run" : "off (HEALTHCHECK_URL isn't set)"}`);
 
   step(`Google Drive remote (${RCLONE_REMOTE})`);
   const remotes = (await $`rclone listremotes`.text()).split("\n");
@@ -37,7 +50,7 @@ export async function setup(): Promise<void> {
   }
 
   step(`Repository password (Keychain item "${KEYCHAIN_SERVICE}")`);
-  if (await inKeychain(KEYCHAIN_ACCOUNT)) {
+  if (await inKeychain()) {
     console.log("Already in Keychain.");
   } else {
     const password = Buffer.from(crypto.getRandomValues(new Uint8Array(32))).toString("base64");
@@ -47,19 +60,6 @@ export async function setup(): Promise<void> {
     console.log("Without it the backup can't be decrypted, so save it in your password manager now.");
     prompt("Press Enter once it's saved (this clears the clipboard).");
     await $`pbcopy < /dev/null`;
-  }
-
-  step("Healthchecks.io ping URL (optional)");
-  if (await inKeychain(HEALTHCHECK_ACCOUNT)) {
-    console.log("Already in Keychain.");
-  } else {
-    const url = ask("Ping URL (Enter to skip):", { optional: true });
-    if (url) {
-      await $`security add-generic-password -s ${KEYCHAIN_SERVICE} -a ${HEALTHCHECK_ACCOUNT} -l ${"Photo library backup (healthchecks.io)"} -w ${url}`.quiet();
-      console.log("Saved to Keychain.");
-    } else {
-      console.log("Skipped.");
-    }
   }
 
   step(`Restic repository (${process.env.RESTIC_REPOSITORY})`);
@@ -88,11 +88,12 @@ Start the first (long) backup now, while you're at the Mac:
   tail -f "${LOG_FILE}"
 
 macOS will ask whether photo-library-backup may access files on a removable
-volume, and later whether it may control Photos. Allow both.`);
+volume (for a library on an external drive), and later whether it may control
+Photos. Allow both.`);
 }
 
-async function inKeychain(account: string): Promise<boolean> {
-  return (await $`security find-generic-password -s ${KEYCHAIN_SERVICE} -a ${account}`.quiet().nothrow()).exitCode === 0;
+async function inKeychain(): Promise<boolean> {
+  return (await $`security find-generic-password -s ${KEYCHAIN_SERVICE} -a ${KEYCHAIN_ACCOUNT}`.quiet().nothrow()).exitCode === 0;
 }
 
 function step(title: string): void {

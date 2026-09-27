@@ -1,7 +1,10 @@
 import { homedir } from "node:os";
-import { join } from "node:path";
+import { basename, dirname, join } from "node:path";
+import { BackupError } from "./shared.ts";
 
-export const LIBRARY = "/Volumes/BANK-1/Media/Library.photoslibrary";
+// Settings that differ per Mac (see .env.example). The compiled binary runs from dist/,
+// and `bun src/main.ts` from src/, so either way the repository root is one level up.
+export const ENV_FILE = join(basename(process.execPath) === "bun" ? import.meta.dir : dirname(process.execPath), "..", ".env");
 
 // Quit Photos while the backup runs (and reopen it afterwards) so the library
 // database isn't being edited mid-snapshot.
@@ -16,14 +19,18 @@ export const LABEL = "local.photo-library-backup";
 export const RCLONE_REMOTE = "gdrive-photos";
 export const KEYCHAIN_SERVICE = "photo-library-backup";
 export const KEYCHAIN_ACCOUNT = "restic";
-// Keychain account (same service) holding the optional healthchecks.io ping URL.
-export const HEALTHCHECK_ACCOUNT = "healthchecks";
 export const STATE_DIR = join(homedir(), "Library/Application Support/photo-library-backup");
 export const LOG_FILE = join(homedir(), "Library/Logs/photo-library-backup.log");
 export const LAUNCH_AGENT = join(homedir(), "Library/LaunchAgents", `${LABEL}.plist`);
 
-/** Sets up the environment restic (and the rclone it starts) runs with. */
+/** Loads .env, and sets up the environment restic (and the rclone it starts) runs with. */
 export function configureEnvironment(): void {
+  // Variables already set in the environment take precedence over the file.
+  try {
+    process.loadEnvFile(ENV_FILE);
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
+  }
   Object.assign(process.env, {
     // launchd jobs get a bare PATH; restic and rclone come from Homebrew.
     PATH: `/opt/homebrew/bin:${process.env.PATH ?? "/usr/bin:/bin:/usr/sbin:/sbin"}`,
@@ -34,4 +41,11 @@ export function configureEnvironment(): void {
     // Bigger packs mean fewer files on Drive; photos rarely change once written.
     RESTIC_PACK_SIZE: "64",
   });
+}
+
+/** The Photos library to back up, from PHOTOS_LIBRARY. */
+export function libraryPath(): string {
+  const library = process.env.PHOTOS_LIBRARY;
+  if (!library) throw new BackupError(`Set PHOTOS_LIBRARY in ${ENV_FILE} (copy .env.example to start).`);
+  return library.replace(/^~(?=\/)/, homedir());
 }

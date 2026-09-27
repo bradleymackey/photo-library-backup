@@ -1,7 +1,6 @@
 # photo-library-backup
 
-Weekly, encrypted, versioned backup of the Photos library
-(`/Volumes/BANK-1/Media/Library.photoslibrary`) to Google Drive.
+Weekly, encrypted, versioned backup of a macOS Photos library to Google Drive.
 
 - **restic** does the backup: data is encrypted on this Mac before upload, and only
   new or changed chunks are sent, so after the first run a week's backup is small.
@@ -32,15 +31,16 @@ launchd or cron starts.
 
 Instead, the TypeScript source in `src/` is compiled with `bun build --compile` into
 `dist/photo-library-backup`, and signed with your Apple Development certificate under
-a fixed identifier (`local.photo-library-backup`). macOS asks about that one binary,
-it only needs **Removable Volumes** access, and because the signature's identity
-doesn't change, the permission survives rebuilds.
+a fixed identifier (`local.photo-library-backup`). macOS asks about that one binary
+(for a library on an external drive, it only needs **Removable Volumes** access), and
+because the signature's identity doesn't change, the permission survives rebuilds.
 
 ## Layout
 
 | Path | Purpose |
 | --- | --- |
-| `src/config.ts` | Library path, retention, names, restic environment. |
+| `.env.example` | Per-Mac settings (library path, healthchecks.io URL); copy to `.env`. |
+| `src/config.ts` | Retention, names, restic environment, loading `.env`. |
 | `src/backup.ts` | The weekly job. |
 | `src/healthcheck.ts` | healthchecks.io pings (start, success, fail). |
 | `src/setup.ts` | One-time interactive setup (safe to re-run). |
@@ -57,7 +57,18 @@ bun run build        # after any change; the launchd job runs dist/photo-library
 
 Install the tools first: `brew install restic rclone`.
 
-### 1. Build and run setup
+### 1. Settings
+
+```sh
+cp .env.example .env
+```
+
+Set `PHOTOS_LIBRARY` in `.env` to your library's path (Photos → Settings → General
+shows it), and optionally `HEALTHCHECK_URL` (see [Monitoring](#monitoring)). `.env` is
+gitignored. Every run reads it, so later changes apply from the next backup without
+rebuilding.
+
+### 2. Build and run setup
 
 In Terminal:
 
@@ -68,6 +79,7 @@ dist/photo-library-backup setup
 
 This:
 
+- Checks the settings in `.env`.
 - Creates the `gdrive-photos` rclone remote. When it asks for a client ID, press
   Enter to use rclone's built-in Google client (or see
   [your own OAuth client](#using-your-own-google-oauth-client-optional)). A browser
@@ -75,11 +87,10 @@ This:
 - Generates the repository password, stores it in your login Keychain, and has you
   save a copy in your password manager. **Without the password the backup can't be
   decrypted.**
-- Optionally stores a healthchecks.io ping URL (see [Monitoring](#monitoring)).
 - Initialises the restic repository (the `photo-library-backup` folder in My Drive).
 - Installs the launchd job.
 
-### 2. Run the first backup, and allow access
+### 3. Run the first backup, and allow access
 
 Do this while you're at the Mac:
 
@@ -90,16 +101,16 @@ tail -f ~/Library/Logs/photo-library-backup.log
 
 macOS will ask:
 
-- whether **photo-library-backup** may access files on a removable volume. Allow it.
-  The backup waits until you answer.
+- whether **photo-library-backup** may access files on a removable volume, if the
+  library is on an external drive. Allow it. The backup waits until you answer.
 - whether it may control **Photos**, the first time a run finds Photos open. Allow it.
   If it's refused, the backup still runs, with Photos left open.
 
 If you denied one by mistake, you can turn it back on in **System Settings → Privacy &
 Security → Files & Folders** (or **Automation**) under photo-library-backup.
 
-The first run uploads the whole library (~210 GB), so it takes hours; progress is
-logged every minute. Leave Photos closed until it finishes, and keep BANK-1
+The first run uploads the whole library, so it can take hours; progress is logged
+every minute. Leave Photos closed until it finishes, and keep the library's drive
 connected. The backup keeps the Mac awake while it runs.
 
 ## Day to day
@@ -131,25 +142,20 @@ Each backup run pings the check's URL:
 A ping that can't get through is retried for about 20 seconds, then logged as a
 warning. It never fails the backup.
 
-Recommended check settings: a **Cron** check with schedule `0 3 * * 0`, time zone
-`Europe/London` and **grace 6 hours**. A cron check always expects a ping around
-Sunday 03:00, however late the last run was or whether you ran one by hand. This Mac
-never sleeps, so a normal run finishes within minutes, and the monthly check adds
-roughly 10.
+Recommended check settings: a **Cron** check with schedule `0 3 * * 0`, your Mac's
+time zone and **grace 6 hours**. A cron check always expects a ping around Sunday
+03:00, however late the last run was or whether you ran one by hand. A normal weekly
+run finishes within minutes, and the monthly check adds roughly 10.
 
 If the Mac is *shut down* at 03:00, launchd skips that week's run. It catches up
 after sleep, but not after a shutdown. The check going down is your cue to run
-`launchctl kickstart gui/$UID/local.photo-library-backup`. If the Mac ever starts
-sleeping at night, raise the grace to a day, or wake it for the backup with
+`launchctl kickstart gui/$UID/local.photo-library-backup`. If the Mac sleeps at
+night, raise the grace to a day, or wake it for the backup with
 `sudo pmset repeat wakeorpoweron U 02:55:00`.
 
-The URL lives in Keychain rather than in the repo, because anyone with it can send
-pings. `setup` asks for it. To change or remove it:
-
-```sh
-security add-generic-password -U -s photo-library-backup -a healthchecks -w '<ping URL>'
-security delete-generic-password -s photo-library-backup -a healthchecks
-```
+Put the check's ping URL in `.env` as `HEALTHCHECK_URL`. That keeps it out of git,
+which matters because anyone with the URL can send pings. Leave it empty to turn
+pinging off.
 
 ## Restoring
 
@@ -158,8 +164,8 @@ dist/photo-library-backup restic snapshots
 dist/photo-library-backup restic restore latest --target ~/Desktop/photos-restore
 ```
 
-The library is restored under its original path inside the target
-(`~/Desktop/photos-restore/Volumes/BANK-1/Media/Library.photoslibrary`).
+The library is restored under its original path inside the target (for example
+`~/Desktop/photos-restore/Volumes/External/Photos Library.photoslibrary`).
 Open it by holding <kbd>⌥</kbd> while launching Photos and choosing that library.
 If Photos reports problems, hold <kbd>⌥⌘</kbd> while launching it to repair
 the library.
@@ -168,7 +174,8 @@ To restore an older version, use a snapshot ID from `snapshots` instead of `late
 
 ### On a new Mac
 
-1. `brew install restic rclone`, copy this repo, then `bun install && bun run build`.
+1. `brew install restic rclone`, copy this repo, set up `.env` (see
+   [Settings](#1-settings)), then `bun install && bun run build`.
 2. Put the repository password from your password manager into Keychain, so setup
    doesn't generate a new one:
 

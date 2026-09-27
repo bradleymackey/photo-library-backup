@@ -1,7 +1,7 @@
 import { $ } from "bun";
 import { readdirSync } from "node:fs";
 import { join } from "node:path";
-import { KEEP_MONTHLY, KEEP_WEEKLY, LIBRARY, LOG_FILE, QUIT_PHOTOS, STATE_DIR } from "./config.ts";
+import { KEEP_MONTHLY, KEEP_WEEKLY, LOG_FILE, QUIT_PHOTOS, STATE_DIR, libraryPath } from "./config.ts";
 import { BackupError, log, notify, restic } from "./shared.ts";
 
 /**
@@ -11,8 +11,9 @@ import { BackupError, log, notify, restic } from "./shared.ts";
  */
 export async function backup(): Promise<string[]> {
   const warnings: string[] = [];
-  log(`Starting backup of ${LIBRARY}`);
-  checkLibraryReadable();
+  const library = libraryPath();
+  log(`Starting backup of ${library}`);
+  checkLibraryReadable(library);
   await checkRepository();
 
   // Keep the Mac awake until we exit (unref'd so it doesn't hold us open).
@@ -23,7 +24,7 @@ export async function backup(): Promise<string[]> {
   try {
     log("Backing up");
     // restic is silent without a terminal, so have it log progress every minute.
-    status = await restic(["backup", LIBRARY], { RESTIC_PROGRESS_FPS: String(1 / 60) });
+    status = await restic(["backup", library], { RESTIC_PROGRESS_FPS: String(1 / 60) });
   } finally {
     if (photosWasOpen) {
       log("Reopening Photos");
@@ -47,17 +48,17 @@ export async function backup(): Promise<string[]> {
   return warnings;
 }
 
-function checkLibraryReadable(): void {
+function checkLibraryReadable(library: string): void {
   try {
-    readdirSync(join(LIBRARY, "database"));
+    readdirSync(join(library, "database"));
   } catch (error) {
     const code = (error as NodeJS.ErrnoException).code;
     if (code === "ENOENT") {
-      throw new BackupError(`Photos library not found at ${LIBRARY}. Is BANK-1 mounted?`);
+      throw new BackupError(`Photos library not found at ${library}. Is its drive connected?`);
     }
     if (code === "EPERM") {
       throw new BackupError(
-        "macOS blocked access to the Photos library. Turn on Removable Volumes for photo-library-backup in System Settings → Privacy & Security → Files & Folders.",
+        "macOS blocked access to the Photos library. Allow photo-library-backup in System Settings → Privacy & Security (Files & Folders → Removable Volumes, for a library on an external drive).",
       );
     }
     throw error;
