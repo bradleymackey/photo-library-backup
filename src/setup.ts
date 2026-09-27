@@ -77,7 +77,7 @@ export async function setup(): Promise<void> {
     throw new BackupError(`Couldn't open the repository (restic exit ${config.exitCode}).`);
   }
 
-  step(`Weekly schedule (launchd job ${LABEL})`);
+  step(`Schedule (launchd job ${LABEL})`);
   await Bun.write(LAUNCH_AGENT, launchAgentPlist(schedule, intervals));
   const domain = `gui/${userInfo().uid}`;
   await $`launchctl bootout ${domain}/${LABEL}`.quiet().nothrow();
