@@ -2,7 +2,8 @@ import { $ } from "bun";
 import { statSync } from "node:fs";
 import { basename } from "node:path";
 import { userInfo } from "node:os";
-import { ENV_FILE, KEYCHAIN_ACCOUNT, KEYCHAIN_SERVICE, LABEL, LAUNCH_AGENT, LOG_FILE, RCLONE_REMOTE, libraryPath } from "./config.ts";
+import { ENV_FILE, KEYCHAIN_ACCOUNT, KEYCHAIN_SERVICE, LABEL, LAUNCH_AGENT, LOG_FILE, RCLONE_REMOTE, backupSchedule, libraryPath } from "./config.ts";
+import { calendarIntervals } from "./schedule.ts";
 import { BackupError, restic } from "./shared.ts";
 
 /** One-time interactive setup. Safe to re-run; finished steps are skipped. */
@@ -26,7 +27,10 @@ export async function setup(): Promise<void> {
       throw new BackupError(`No Photos library at ${library}. Check PHOTOS_LIBRARY, and that its drive is connected.`);
     }
   }
+  const schedule = backupSchedule();
+  const intervals = calendarIntervals(schedule);
   console.log(`Library: ${library}`);
+  console.log(`Schedule: ${schedule}`);
   console.log(`healthchecks.io: ${process.env.HEALTHCHECK_URL ? "pings on every run" : "off (HEALTHCHECK_URL isn't set)"}`);
 
   step(`Google Drive remote (${RCLONE_REMOTE})`);
@@ -74,14 +78,14 @@ export async function setup(): Promise<void> {
   }
 
   step(`Weekly schedule (launchd job ${LABEL})`);
-  await Bun.write(LAUNCH_AGENT, launchAgentPlist());
+  await Bun.write(LAUNCH_AGENT, launchAgentPlist(schedule, intervals));
   const domain = `gui/${userInfo().uid}`;
   await $`launchctl bootout ${domain}/${LABEL}`.quiet().nothrow();
   await $`launchctl bootstrap ${domain} ${LAUNCH_AGENT}`;
   console.log(`Installed ${LAUNCH_AGENT}`);
 
   console.log(`
-All set. Backups run every Sunday at 03:00; logs go to ${LOG_FILE}.
+All set. Backups run on the schedule "${schedule}"; logs go to ${LOG_FILE}.
 
 Start the first (long) backup now, while you're at the Mac:
   launchctl kickstart ${domain}/${LABEL}
@@ -111,7 +115,7 @@ function ask(question: string, { hidden = false, optional = false } = {}): strin
   return answer;
 }
 
-function launchAgentPlist(): string {
+function launchAgentPlist(schedule: string, intervals: string): string {
   return `<?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
@@ -124,16 +128,9 @@ function launchAgentPlist(): string {
     <string>${process.execPath}</string>
     <string>backup</string>
   </array>
-  <!-- Sundays at 03:00. If the Mac is asleep then, it runs on the next wake. -->
+  <!-- BACKUP_SCHEDULE "${schedule}", in local time. If the Mac is asleep then, it runs on the next wake. -->
   <key>StartCalendarInterval</key>
-  <dict>
-    <key>Weekday</key>
-    <integer>0</integer>
-    <key>Hour</key>
-    <integer>3</integer>
-    <key>Minute</key>
-    <integer>0</integer>
-  </dict>
+  ${intervals}
   <key>StandardOutPath</key>
   <string>${LOG_FILE}</string>
   <key>StandardErrorPath</key>

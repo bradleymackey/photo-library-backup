@@ -6,7 +6,8 @@ Weekly, encrypted, versioned backup of a macOS Photos library to Google Drive.
   new or changed chunks are sent, so after the first run a week's backup is small.
 - **rclone** is restic's transport to Google Drive, limited to the `drive.file`
   scope, so it can only see the files it created.
-- **launchd** runs the backup every Sunday at 03:00 (or on the next wake).
+- **launchd** runs the backup on a cron schedule (by default every Sunday at 03:00),
+  or on the next wake if the Mac was asleep.
 
 Each run:
 
@@ -59,9 +60,10 @@ because the signature's identity doesn't change, the permission survives rebuild
 | Path | Purpose |
 | --- | --- |
 | `AGENTS.md` | Rules for coding agents (`CLAUDE.md` links to it); defers to this README. |
-| `.env.example` | Per-Mac settings (library path, healthchecks.io URL); copy to `.env`. |
+| `.env.example` | Per-Mac settings (library path, schedule, healthchecks.io URL); copy to `.env`. |
 | `src/config.ts` | Retention, names, restic environment, loading `.env`. |
 | `src/backup.ts` | The weekly job. |
+| `src/schedule.ts` | Turns the cron schedule into launchd's calendar intervals. |
 | `src/healthcheck.ts` | healthchecks.io pings (start, success, fail). |
 | `src/setup.ts` | One-time interactive setup (safe to re-run). |
 | `src/main.ts` | Command-line entry point: `backup`, `setup`, `restic <args>`. |
@@ -84,9 +86,12 @@ cp .env.example .env
 ```
 
 Set `PHOTOS_LIBRARY` in `.env` to your library's path (Photos → Settings → General
-shows it), and optionally `HEALTHCHECK_URL` (see [Monitoring](#monitoring)). `.env` is
-gitignored. Every run reads it, so later changes apply from the next backup without
-rebuilding.
+shows it). Optionally, set `BACKUP_SCHEDULE` to back up at a different time, and
+`HEALTHCHECK_URL` to [monitor](#monitoring) the backups. `.env` is gitignored.
+
+Every run reads `.env`, so later changes apply from the next backup without
+rebuilding. The exception is `BACKUP_SCHEDULE`, which is installed into the launchd
+job: run `dist/photo-library-backup setup` again after changing it.
 
 ### 2. Build and run setup
 
@@ -108,7 +113,7 @@ This:
   save a copy in your password manager. **Without the password the backup can't be
   decrypted.**
 - Initialises the restic repository (the `photo-library-backup` folder in My Drive).
-- Installs the launchd job.
+- Installs the launchd job, with the schedule from `.env`.
 
 ### 3. Run the first backup, and allow access
 
@@ -162,16 +167,17 @@ Each backup run pings the check's URL:
 A ping that can't get through is retried for about 20 seconds, then logged as a
 warning. It never fails the backup.
 
-Recommended check settings: a **Cron** check with schedule `0 3 * * 0`, your Mac's
-time zone and **grace 6 hours**. A cron check always expects a ping around Sunday
-03:00, however late the last run was or whether you ran one by hand. A normal weekly
-run finishes within minutes, and the monthly check adds roughly 10.
+Recommended check settings: a **Cron** check with the same schedule as
+`BACKUP_SCHEDULE` (`0 3 * * 0` by default), your Mac's time zone and **grace 6
+hours**. A cron check always expects a ping around each scheduled time, however late
+the last run was or whether you ran one by hand. A normal weekly run finishes within
+minutes, and the monthly check adds roughly 10.
 
-If the Mac is *shut down* at 03:00, launchd skips that week's run. It catches up
+If the Mac is *shut down* at the scheduled time, launchd skips that run. It catches up
 after sleep, but not after a shutdown. The check going down is your cue to run
 `launchctl kickstart gui/$UID/local.photo-library-backup`. If the Mac sleeps at
 night, raise the grace to a day, or wake it for the backup with
-`sudo pmset repeat wakeorpoweron U 02:55:00`.
+`sudo pmset repeat wakeorpoweron U 02:55:00` (for the default schedule).
 
 Put the check's ping URL in `.env` as `HEALTHCHECK_URL`. That keeps it out of git,
 which matters because anyone with the URL can send pings. Leave it empty to turn
@@ -214,6 +220,8 @@ To restore an older version, use a snapshot ID from `snapshots` instead of `late
   iCloud sync can still touch the library, though, so a snapshot isn't guaranteed
   to be perfectly consistent. The snapshot history and Photos' repair tool are the
   safety net.
+- **Schedule:** retention keeps weekly and monthly snapshots whatever the schedule,
+  so backing up more often than weekly gives fresher backups, not more history.
 - **Pruning:** pruned data is deleted outright rather than sent to the Drive bin
   (`use_trash=false`), so it doesn't sit there using quota.
 - **Password:** to see the repository password again, run

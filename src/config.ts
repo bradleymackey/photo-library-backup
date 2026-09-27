@@ -43,6 +43,11 @@ export function configureEnvironment(): void {
   });
 }
 
+/** When launchd runs the backup, from BACKUP_SCHEDULE (cron syntax, local time). */
+export function backupSchedule(): string {
+  return process.env.BACKUP_SCHEDULE?.trim() || "0 3 * * 0";
+}
+
 /** The Photos library to back up, from PHOTOS_LIBRARY. */
 export function libraryPath(): string {
   const library = process.env.PHOTOS_LIBRARY;
